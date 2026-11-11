@@ -10,8 +10,18 @@ commands the agent runs.
 
 ## Usage
 
+The kit is published on Docker Hub as
+[`docker.io/matthisk/nix-direnv-kit`](https://hub.docker.com/r/matthisk/nix-direnv-kit):
+
 ```sh
-# From the directory that contains this kit (the handle is the directory name,
+sbx run <WORKLOAD> ~/code/my-project --kit docker.io/matthisk/nix-direnv-kit:0.1.0
+```
+
+Docker Hub is in sbx's default `kit.allowedSources`, so no extra settings are
+needed for the published kit. You can also use it from source:
+
+```sh
+# From a local checkout (the handle is the directory name,
 # so pass ./nix-direnv-kit, not ./)
 sbx run <WORKLOAD> ~/code/my-project --kit ./nix-direnv-kit
 
@@ -19,8 +29,8 @@ sbx run <WORKLOAD> ~/code/my-project --kit ./nix-direnv-kit
 sbx run <WORKLOAD> --kit 'git+https://github.com/matthisk/nix-direnv-kit.git#ref=<COMMIT>'
 ```
 
-Remote kits must match `kit.allowedSources`, which defaults to Docker Hub
-only. To use the git reference, allow the source first:
+Git kits must match `kit.allowedSources`, which defaults to Docker Hub only.
+To use the git reference, allow the source first:
 
 ```sh
 sbx settings set kit.allowedSources '["docker.io/","github.com/matthisk/"]'
@@ -35,7 +45,7 @@ once:
 ```sh
 sbx settings set kit.shortcuts.shell  docker.io/sbx/shell:latest
 sbx settings set kit.shortcuts.claude docker.io/sbx/claude:latest
-sbx run claude ~/code/my-project --kit ./nix-direnv-kit
+sbx run claude ~/code/my-project --kit docker.io/matthisk/nix-direnv-kit:0.1.0
 ```
 
 The project needs an `.envrc`, for example:
@@ -53,7 +63,7 @@ use flake
 | `prewarm` | `true` | create | Evaluate the workspace `.envrc` in the background on every start |
 
 ```sh
-sbx run claude . --kit ./nix-direnv-kit --kit-arg nix-direnv-kit.autoAllow=false
+sbx run claude . --kit docker.io/matthisk/nix-direnv-kit:0.1.0 --kit-arg nix-direnv-kit.autoAllow=false
 ```
 
 ## How it works
@@ -92,10 +102,14 @@ its recorded kit configuration.
 
 ## Publish
 
+Bump `version:` in `nix-direnv-kit.yaml`, then build and push both
+architectures with the same tag:
+
 ```sh
+docker login
 docker buildx build . -f nix-direnv-kit.yaml \
   --platform linux/amd64,linux/arm64 \
-  -t docker.io/<NAMESPACE>/nix-direnv-kit:0.1.0 --push
+  -t docker.io/matthisk/nix-direnv-kit:<VERSION> --push
 ```
 
 ## Limitations
