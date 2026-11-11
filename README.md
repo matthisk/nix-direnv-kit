@@ -19,6 +19,13 @@ sbx run <WORKLOAD> ~/code/my-project --kit ./nix-direnv-kit
 sbx run <WORKLOAD> --kit 'git+https://github.com/matthisk/nix-direnv-kit.git#ref=<COMMIT>'
 ```
 
+Remote kits must match `kit.allowedSources`, which defaults to Docker Hub
+only. To use the git reference, allow the source first:
+
+```sh
+sbx settings set kit.allowedSources '["docker.io/","github.com/matthisk/"]'
+```
+
 `<WORKLOAD>` must be a **v3** workload kit. On sbx v0.50 the bare built-in
 names (`shell`, `claude`, ...) still resolve to legacy templates unless a
 shortcut is set, and passing `docker.io/sbx/shell:latest` directly is refused
