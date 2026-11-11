@@ -1,0 +1,126 @@
+# syntax=docker/sandbox-kit:3
+# Nix + direnv + nix-direnv as a MIXIN for Docker Sandboxes (sbx).
+#
+# Layer it onto any sbx workload (shell, claude, codex, ...) and the
+# sandbox picks up the project's toolchain from the workspace .envrc —
+# typically `use flake` — in both interactive shells and the agent's own
+# non-interactive command shells.
+#
+#   sbx run shell --kit ./nix-direnv-kit
+#   sbx run claude --kit ./nix-direnv-kit
+schemaVersion: "3"
+displayName: Nix + direnv + nix-direnv
+description: >-
+  Single-user Nix (flakes enabled), direnv and nix-direnv, wired so that the
+  workspace .envrc is loaded automatically: a direnv hook for interactive
+  bash, and a BASH_ENV / CLAUDE_ENV_FILE hook so agent command shells get the
+  same environment. nix-direnv state lives in the sandbox, not in the
+  host-shared .direnv directory.
+sourceUrl: https://github.com/nix-community/nix-direnv
+# Nix (LGPL-2.1), direnv (MIT), nix-direnv (MIT).
+licenses: [LGPL-2.1-or-later, MIT]
+
+kind: mixin
+version: "0.1.0"
+
+args:
+  nixpkgsRef:
+    default: "nixos-26.05"
+    pattern: '^[A-Za-z0-9._/-]+$'
+    description: >-
+      nixpkgs branch, tag or commit that nix, direnv and nix-direnv are built
+      from (github:NixOS/nixpkgs/<ref>). Only affects the installed tools,
+      not the project's flake inputs.
+    buildArg: NIXPKGS_REF
+  autoAllow:
+    default: "true"
+    enum: ["true", "false"]
+    description: >-
+      Trust every .envrc under the sandbox workspace (direnv whitelist), so no
+      `direnv allow` is needed. Set to "false" to approve .envrc files by hand.
+    env: NIX_DIRENV_KIT_AUTO_ALLOW
+  prewarm:
+    default: "true"
+    enum: ["true", "false"]
+    description: >-
+      On every sandbox start, evaluate the workspace .envrc in the background
+      so the first agent command does not wait for the flake to build.
+    env: NIX_DIRENV_KIT_PREWARM
+
+capabilities:
+  # Everything Nix reaches when evaluating and realising a flake: the
+  # binary cache, the flake registry and channel tarballs, and GitHub for
+  # `github:` flake inputs. Builds happen at runtime (inside the sandbox),
+  # so all of it is runtime egress. Add your own substituters or private
+  # flake hosts in a separate mixin or via `sbx policy`.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - cache.nixos.org
+          - channels.nixos.org
+          - releases.nixos.org
+          - tarballs.nixos.org
+          - nixos.org
+          - github.com
+          - api.github.com
+          - codeload.github.com
+          - raw.githubusercontent.com
+          - objects.githubusercontent.com
+          - release-assets.githubusercontent.com
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # /etc/sandbox-persistent.sh is what BASH_ENV, /etc/profile.d and
+        # CLAUDE_ENV_FILE source on the sbx base images. Root, because a
+        # base may ship it root-owned or not at all.
+        - command: [/usr/local/libexec/nix-direnv-kit/setup.sh, system]
+          user: "0"
+          description: Hook direnv into /etc/sandbox-persistent.sh
+
+        # direnvrc (nix-direnv + sandbox-local layout dir), direnv.toml
+        # (workspace whitelist), and the interactive bash/zsh hook.
+        - command: [/usr/local/libexec/nix-direnv-kit/setup.sh, user]
+          user: agent
+          env: [WORKSPACE_DIR, NIX_DIRENV_KIT_AUTO_ALLOW]
+          description: Configure direnv and nix-direnv for the agent user
+
+      startup:
+        # Every boot: build the workspace dev shell in the background so the
+        # nix-direnv cache is warm. Idempotent — a warm cache is a no-op.
+        - command: [/usr/local/libexec/nix-direnv-kit/prewarm.sh]
+          user: agent
+          background: true
+          env: [WORKSPACE_DIR, NIX_DIRENV_KIT_PREWARM]
+          description: Pre-build the workspace .envrc environment
+
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        ## Nix + direnv
+
+        This sandbox has single-user Nix (flakes enabled), direnv and
+        nix-direnv. The project's toolchain comes from its `.envrc`
+        (usually `use flake`, which loads the `devShell` of `flake.nix`).
+
+        - Every bash command you run loads the `.envrc` of its working
+          directory automatically, so the dev-shell tools are on PATH when
+          you run commands from the workspace. You don't need `nix develop`.
+        - To run something with another directory's environment, use
+          `direnv exec <dir> <command>`.
+        - If a tool is missing, add it to the dev shell in `flake.nix`
+          rather than installing it with apt or npm. The next command picks
+          up the change.
+        - The first evaluation of a flake can take minutes while Nix fetches
+          from cache.nixos.org. Run `direnv exec . true` to see its output
+          when debugging. Use `nix run nixpkgs#<pkg>` for one-off tools.
+        - Nix can reach cache.nixos.org, the nixos.org hosts and GitHub. A
+          different substituter or a private flake input is refused by the
+          sandbox network policy until it is allowed.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context
