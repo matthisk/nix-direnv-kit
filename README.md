@@ -14,7 +14,7 @@ The kit is published on Docker Hub as
 [`docker.io/matthisk/nix-direnv-kit`](https://hub.docker.com/r/matthisk/nix-direnv-kit):
 
 ```sh
-sbx run <WORKLOAD> ~/code/my-project --kit docker.io/matthisk/nix-direnv-kit:0.1.0
+sbx run <WORKLOAD> ~/code/my-project --kit docker.io/matthisk/nix-direnv-kit:0.2.0
 ```
 
 Docker Hub is in sbx's default `kit.allowedSources`, so no extra settings are
@@ -45,7 +45,7 @@ once:
 ```sh
 sbx settings set kit.shortcuts.shell  docker.io/sbx/shell:latest
 sbx settings set kit.shortcuts.claude docker.io/sbx/claude:latest
-sbx run claude ~/code/my-project --kit docker.io/matthisk/nix-direnv-kit:0.1.0
+sbx run claude ~/code/my-project --kit docker.io/matthisk/nix-direnv-kit:0.2.0
 ```
 
 The project needs an `.envrc`, for example:
@@ -61,9 +61,10 @@ use flake
 | `nixpkgsRef` | `nixos-26.05` | build | nixpkgs ref that nix, direnv and nix-direnv are built from |
 | `autoAllow` | `true` | create | Whitelist the workspace in `direnv.toml` so no `direnv allow` is needed |
 | `prewarm` | `true` | create | Evaluate the workspace `.envrc` in the background on every start |
+| `localCache` | empty | create | Binary cache URL tried before cache.nixos.org, for example `http://host.docker.internal:8080`. See [Local binary cache](#local-binary-cache) |
 
 ```sh
-sbx run claude . --kit docker.io/matthisk/nix-direnv-kit:0.1.0 --kit-arg nix-direnv-kit.autoAllow=false
+sbx run claude . --kit docker.io/matthisk/nix-direnv-kit:0.2.0 --kit-arg nix-direnv-kit.autoAllow=false
 ```
 
 ## How it works
@@ -87,7 +88,36 @@ used by `github:` flake inputs. Other substituters (for example Cachix) and
 private flake hosts are refused until you allow them. To allow them, use
 `sbx policy` or add a small mixin that declares
 `com.docker.sandbox/network-policy@1`. Run `sbx policy log` to see what was
-blocked.
+blocked. `host.docker.internal:8080` is also allowed, for the optional local
+binary cache.
+
+### Local binary cache
+
+Every new sandbox starts with an empty `/nix/store` and downloads the whole
+dev-shell closure again. A pull-through cache on the host makes every
+sandbox after the first one fetch from local disk. `local-cache/nginx.conf`
+is an nginx caching proxy for cache.nixos.org. It serves the upstream bytes
+unchanged, so no extra trusted key is needed:
+
+```sh
+docker run -d --name nix-cache --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 \
+  -v "$PWD/local-cache/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+  -v ~/.cache/nix-cache-proxy:/cache \
+  nginx:alpine
+
+sbx run claude . --kit docker.io/matthisk/nix-direnv-kit:<VERSION> \
+  --kit-arg nix-direnv-kit.localCache=http://host.docker.internal:8080
+```
+
+The kit writes `/etc/nix/nix-direnv-kit.conf`, which `nix.conf` includes, with
+the cache at priority 10 and cache.nixos.org (priority 40) as the fallback.
+Nix falls back when the cache misses a path or is not running. A short
+`connect-timeout` keeps an unreachable cache from stalling it. To check from
+inside the sandbox, run
+`curl -s http://host.docker.internal:8080/nix-cache-info` and
+`nix config show substituters`. A cache on another host or port also needs
+`sbx policy allow network <host>:<port>`.
 
 ## Develop
 

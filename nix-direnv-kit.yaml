@@ -21,7 +21,7 @@ sourceUrl: https://github.com/nix-community/nix-direnv
 licenses: [LGPL-2.1-or-later, MIT]
 
 kind: mixin
-version: "0.1.0"
+version: "0.2.0"
 
 args:
   nixpkgsRef:
@@ -46,6 +46,16 @@ args:
       On every sandbox start, evaluate the workspace .envrc in the background
       so the first agent command does not wait for the flake to build.
     env: NIX_DIRENV_KIT_PREWARM
+  localCache:
+    default: ""
+    pattern: '^(https?://[A-Za-z0-9._:-]+(/[A-Za-z0-9._/-]*)?)?$'
+    description: >-
+      URL of a binary cache on the host (for example a caching proxy in front
+      of cache.nixos.org at http://host.docker.internal:8080). Nix tries it
+      first and falls back to cache.nixos.org. Empty disables it. The kit's
+      network policy allows only host.docker.internal:8080; for another host
+      or port, add it with `sbx policy allow network`.
+    env: NIX_DIRENV_KIT_LOCAL_CACHE
 
 capabilities:
   # Everything Nix reaches when evaluating and realising a flake: the
@@ -68,6 +78,8 @@ capabilities:
           - raw.githubusercontent.com
           - objects.githubusercontent.com
           - release-assets.githubusercontent.com
+          # Default address of the optional host-side cache (localCache arg).
+          - host.docker.internal:8080
 
   - type: com.docker.sandbox/lifecycle@1
     config:
@@ -77,7 +89,8 @@ capabilities:
         # base may ship it root-owned or not at all.
         - command: [/usr/local/libexec/nix-direnv-kit/setup.sh, system]
           user: "0"
-          description: Hook direnv into /etc/sandbox-persistent.sh
+          env: [NIX_DIRENV_KIT_LOCAL_CACHE]
+          description: Hook direnv into /etc/sandbox-persistent.sh and configure the local cache
 
         # direnvrc (nix-direnv + sandbox-local layout dir), direnv.toml
         # (workspace whitelist), and the interactive bash/zsh hook.

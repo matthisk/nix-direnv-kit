@@ -19,6 +19,20 @@ system() {
   fi
   append_once "$persist" \
     'if [ -f /usr/local/share/nix-direnv-kit/env.sh ]; then . /usr/local/share/nix-direnv-kit/env.sh; fi'
+
+  # Optional host-side binary cache, included from /etc/nix/nix.conf.
+  # priority=10 puts it before cache.nixos.org (40), which stays as the
+  # fallback for anything the cache doesn't have or when it is down.
+  # A short connect timeout keeps an unreachable cache from stalling Nix.
+  cache_conf=/etc/nix/nix-direnv-kit.conf
+  if [ -n "${NIX_DIRENV_KIT_LOCAL_CACHE:-}" ]; then
+    printf '%s\n%s\n%s\n' "$MARK" \
+      "substituters = ${NIX_DIRENV_KIT_LOCAL_CACHE}?priority=10 https://cache.nixos.org" \
+      'connect-timeout = 5' >"$cache_conf"
+    chmod 0644 "$cache_conf"
+  else
+    rm -f "$cache_conf"
+  fi
 }
 
 user() {
